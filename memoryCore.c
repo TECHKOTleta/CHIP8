@@ -1,0 +1,60 @@
+#include "chip8.h"
+#include "memoryCore.h"
+
+#include <stdio.h>
+#include <string.h>
+
+
+void Initialize(Chip8* chip8){
+    memset(chip8, 0, sizeof(Chip8));
+    chip8->PC = 0x200;
+    
+    uint8_t chip8_fontset[80] = {
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+    };
+    memcpy(chip8->Memory, chip8_fontset, sizeof(chip8_fontset));
+
+}
+
+int LoadROM(Chip8* chip8, const char* fileName){
+    FILE* ROM = fopen(fileName, "rb");
+    if(ROM == NULL){
+        return 1; //file opening error
+    }
+
+    char buffer [32];
+    int block = 0; //4096-512 = 3584B for programm, 112 blocks of 32B MAX
+    int totalRead = 0;
+    size_t read = 0;
+
+    while((read = fread(buffer, sizeof *buffer, 32, ROM)) > 0){
+        if(block == 112){
+            fclose(ROM);
+            return 2; //instructions are bigger that memory
+        }
+        memcpy((chip8->Memory + 0x200 + block*32), buffer, read);
+        block++;
+        totalRead += read;
+    }
+
+    totalRead += 0x200;
+    memset((chip8->Memory + totalRead), 0, 4096-totalRead);
+
+    fclose(ROM);
+    return 0;
+}
