@@ -50,6 +50,32 @@ uint8_t adder(uint8_t a, uint8_t b, uint8_t* carry){
     return res;
 }
 
+uint8_t substractor(uint8_t a, uint8_t b, uint8_t* borrow){
+    uint8_t a_bit = 0, b_bit = 0, c_bit = 0;
+    uint8_t res = 0, res_bit = 0, count = 0;
+    *borrow = 1;
+
+    while(a != 0 || b != 0 || c_bit != 0){
+        a_bit = a & 0b1;
+        a >>= 1;
+        b_bit = b & 0b1;
+        b >>= 1;
+
+        res_bit = a_bit ^ b_bit ^ c_bit;
+        c_bit = (b_bit&(!a_bit))|(c_bit&(!a_bit))|(b_bit&c_bit);
+
+        res_bit<<=(count++);
+        res |= res_bit;
+
+        if(count == 8 && c_bit == 1){
+            *borrow = 0;
+            c_bit = 0;
+        }
+    }
+    
+    return res;
+}
+
 int main() {
     uint8_t a, b, c;
     a = 50;
@@ -62,10 +88,12 @@ int main() {
 
 uint8_t execute(Chip8* chip8, uint8_t* instruction){
     uint8_t base = instruction[0] >> 4;
-    uint16_t rest = (uint16_t)(instruction[0] << 4) + instruction[1];
+    uint16_t rest = (uint16_t)(instruction[0] << 4) << 4 | instruction[1];
     uint8_t X = instruction[0] & 0x00FF;
     uint8_t Y = instruction[1] >> 4;
     uint8_t value;
+    printf("Executing %X%x...\n", instruction[0], instruction[1]);
+
     switch (base)
     {
     case 0:
@@ -121,10 +149,10 @@ uint8_t execute(Chip8* chip8, uint8_t* instruction){
         }
         if(chip8->V[X] == chip8->V[Y]){
             chip8->PC+=2;
-            printf("Skipping, do not executing next instruction, skip to %x, because V%x (%x) == V(%x) %x, but should not be\n", chip8->PC, X, chip8->V[X], Y, chip8->V[Y]);
+            printf("Skipping, do not executing next instruction, skip to %x, because V%x (%x) == V%x (%x), but should not be\n", chip8->PC, X, chip8->V[X], Y, chip8->V[Y]);
         }
         else{
-           printf("Proceeding normally to %x, because V%x (%x) != V(%x) %x, and should not be\n", chip8->PC, X, chip8->V[X], Y, chip8->V[Y]);
+           printf("Proceeding normally to %x, because V%x (%x) != V%x (%x), and should not be\n", chip8->PC, X, chip8->V[X], Y, chip8->V[Y]);
         }
         break;
     case 6:
@@ -138,7 +166,7 @@ uint8_t execute(Chip8* chip8, uint8_t* instruction){
         printf("%x was written into V%x", value, X);
         break;
     case 8:
-        value = (uint8_t)(rest) & 0xFF;
+        value = (uint8_t)(rest) & 0x0F;
         switch (value)
         {
         case 0:
@@ -158,8 +186,30 @@ uint8_t execute(Chip8* chip8, uint8_t* instruction){
             printf("Made V%x ^= V%x, result: %x", X, Y, chip8->V[X]);
             break;
         case 4:
-            chip8->V[X] ^= adder(chip8->V[X], chip8->V[Y], &chip8->V[0xF]);
-            printf("Made V%x += V%x, result: %x", X, Y, chip8->V[X]);
+            chip8->V[X] = adder(chip8->V[X], chip8->V[Y], &chip8->V[0xF]);
+            printf("Made V%x += V%x, result: %x with carry %b", X, Y, chip8->V[X], chip8->V[0xF]);
+            break;
+
+        case 5:
+            chip8->V[X] = substractor(chip8->V[X], chip8->V[Y], &chip8->V[0xF]);
+            printf("Made V%x -= V%x, result: %x with borrow %b", X, Y, chip8->V[X], chip8->V[0xF]);
+            break;
+
+        case 6:
+            chip8->V[0xF] = chip8->V[X] & 0b1;
+            chip8->V[X] >>= chip8->V[Y];
+            printf("Made V%x >>= V%x(%d bits), result: %x with %b in VF", X, Y, chip8->V[Y], chip8->V[X], chip8->V[0xF]);
+            break;
+
+        case 7:
+            chip8->V[X] = substractor(chip8->V[Y], chip8->V[X], &chip8->V[0xF]);
+            printf("Made V%x = V%x - V%x, result: %x with borrow %b", X, Y, X, chip8->V[X], chip8->V[0xF]);
+            break;
+
+        case 0xE:
+            chip8->V[0xF] = (chip8->V[X] & 0b10000000) >> 7;
+            chip8->V[X] <<= chip8->V[Y];
+            printf("Made V%x <<= V%x(%d bits), result: %x with %b in VF", X, Y, chip8->V[Y], chip8->V[X], chip8->V[0xF]);
             break;
         
         default:
@@ -167,6 +217,35 @@ uint8_t execute(Chip8* chip8, uint8_t* instruction){
             return 0;
         }
         break;
+    
+    case 9:
+        value = (uint8_t)(rest) & 0x0F;
+        if(value != 0){
+            printf("Unknown operation with base 9\n");
+            return 0;
+        }
+        if(chip8->V[X] != chip8->V[Y]){
+            chip8->PC+=2;
+            printf("Skipping, do not executing next instruction, skip to %x, because V%x (%x) != V%x (%x), but should be\n", chip8->PC, X, chip8->V[X], Y, chip8->V[Y]);
+        }
+        break;
+
+    case 0xA:
+        chip8->I = rest;
+        printf("Wrote %x in I\n", rest);
+        break;
+
+    case 0xB:
+        chip8->PC = rest+chip8->V[0];
+        printf("Jump %x (%x given and %x in V0)", chip8->PC, rest, chip8->V[0]);
+        break;
+
+    case 0xC:
+        chip8->V[X] = rand() % 256;
+        chip8->V[X] &= (uint8_t)rest;
+        printf("Random value (%d) generated and put in V%x (with %x &)", chip8->V[X], (uint8_t)rest);
+        break;
+
     default:
         return 0;
     }
@@ -177,6 +256,7 @@ uint8_t execute(Chip8* chip8, uint8_t* instruction){
 int main(){
     printf("Starting...\n");
 
+    srand(time(NULL));
     Chip8 chip8;
     Initialize(&chip8);
     if(chip8.Memory[79] != 0x80){
